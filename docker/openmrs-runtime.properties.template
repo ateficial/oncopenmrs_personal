@@ -1,0 +1,27 @@
+# ==============================================================================
+# OpenMRS Runtime Properties Template
+# ==============================================================================
+# This file is used by OpenMRS to establish database connections and module settings.
+# When running with Docker Compose, environment variables passed to the container
+# automatically generate the runtime configuration.
+# ==============================================================================
+
+# Database Connection (PostgreSQL 13+)
+connection.driver_class=org.postgresql.Driver
+connection.url=jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_DATABASE}?characterEncoding=UTF-8&useSSL=false
+connection.username=${DB_USER}
+connection.password=${DB_PASSWORD}
+
+# Database Update Directives
+auto_update_database=true
+create_tables=true
+
+# Encryption and Hashing
+encryption.vector=
+encryption.key=
+
+# Module Repository and Application Data Directory
+application_data_directory=/openmrs/data
+
+# Hibernate dialect for PostgreSQL
+hibernate.dialect=org.hibernate.dialect.PostgreSQL10Dialect

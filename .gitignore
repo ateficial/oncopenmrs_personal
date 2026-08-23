@@ -1,0 +1,42 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.csr
+*.cer
+*.p12
+*.pfx
+secrets/
+
+# Database dumps and backups
+*.dump
+*.sql
+*.tar.gz
+*.zip
+*.gz
+backups/
+/scripts/backups/
+
+# Logs
+*.log
+logs/
+/docker/logs/
+
+# OpenMRS runtime data and local persistent folders
+openmrs-data/
+postgres-data/
+
+# OS metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor & IDE directories
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

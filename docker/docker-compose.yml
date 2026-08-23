@@ -1,0 +1,118 @@
+services:
+  # ----------------------------------------------------------------------------
+  # PostgreSQL 15 Database Service
+  # Strictly internal - NO host ports are published to prevent external ingress.
+  # ----------------------------------------------------------------------------
+  openmrs-db:
+    image: postgres:15-alpine
+    container_name: openmrs-db
+    restart: unless-stopped
+    command: >
+      postgres
+      -c max_connections=100
+      -c shared_buffers=2GB
+      -c effective_cache_size=6GB
+      -c work_mem=16MB
+      -c maintenance_work_mem=512MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-openmrs}
+      POSTGRES_USER: ${POSTGRES_USER:-openmrs_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - openmrs-db-data:/var/lib/postgresql/data
+    networks:
+      - openmrs-internal-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-openmrs_user} -d ${POSTGRES_DB:-openmrs}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ----------------------------------------------------------------------------
+  # OpenMRS Reference Application (Core & Web Distribution)
+  # Internal service reverse-proxied by NGINX - NO host ports are published.
+  # ----------------------------------------------------------------------------
+  openmrs-web:
+    image: openmrs/openmrs-reference-application-distro:latest
+    container_name: openmrs-web
+    restart: unless-stopped
+    depends_on:
+      openmrs-db:
+        condition: service_healthy
+    environment:
+      DB_DATABASE: ${POSTGRES_DB:-openmrs}
+      DB_USER: ${POSTGRES_USER:-openmrs_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_HOST: openmrs-db
+      DB_PORT: 5432
+      OPENMRS_ADMIN_PASSWORD: ${OPENMRS_ADMIN_PASSWORD}
+      OPENMRS_AUTO_UPDATE_DATABASE: ${OPENMRS_AUTO_UPDATE_DATABASE:-true}
+      OPENMRS_CREATE_TABLES: ${OPENMRS_CREATE_TABLES:-true}
+      JAVA_OPTS: "-Xms1024m -Xmx4096m -XX:+UseG1GC"
+    volumes:
+      - openmrs-app-data:/openmrs/data
+    networks:
+      - openmrs-internal-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/openmrs/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ----------------------------------------------------------------------------
+  # NGINX Reverse Proxy & TLS Termination
+  # Only service that exposes external ports (80 and 443) on the host.
+  # ----------------------------------------------------------------------------
+  openmrs-nginx:
+    image: nginx:1.25-alpine
+    container_name: openmrs-nginx
+    restart: unless-stopped
+    depends_on:
+      - openmrs-web
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../nginx/conf.d:/etc/nginx/conf.d:ro
+      - certbot-etc:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    networks:
+      - openmrs-internal-net
+
+  # ----------------------------------------------------------------------------
+  # Certbot Let's Encrypt SSL Automated Renewal Service
+  # Periodically checks and renews certificates via ACME challenge.
+  # ----------------------------------------------------------------------------
+  openmrs-certbot:
+    image: certbot/certbot:latest
+    container_name: openmrs-certbot
+    restart: unless-stopped
+    volumes:
+      - certbot-etc:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    entrypoint: >
+      /bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done;'
+    networks:
+      - openmrs-internal-net
+
+networks:
+  openmrs-internal-net:
+    name: openmrs-internal-net
+    driver: bridge
+
+volumes:
+  openmrs-db-data:
+    name: openmrs-db-data
+  openmrs-app-data:
+    name: openmrs-app-data
+  certbot-etc:
+    name: openmrs-certbot-etc
+  certbot-www:
+    name: openmrs-certbot-www

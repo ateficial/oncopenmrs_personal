@@ -1,0 +1,17 @@
+# ==============================================================================
+# Ansible Inventory Template (inventory.ini.example)
+# ==============================================================================
+# Copy this file to 'inventory.ini' and replace the placeholder IP address
+# with your GCP Compute Engine external IP or hostname.
+# ==============================================================================
+
+[openmrs_servers]
+openmrs-pilot ansible_host=34.X.X.X ansible_user=deploy ansible_ssh_private_key_file=~/.ssh/id_rsa
+
+[openmrs_servers:vars]
+ansible_python_interpreter=/usr/bin/python3
+deploy_user=deploy
+swap_size_gb=4
+sysctl_swappiness=10
+sysctl_max_map_count=262144
+timezone=Etc/UTC
