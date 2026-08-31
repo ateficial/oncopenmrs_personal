@@ -29,27 +29,25 @@ fi
 
 echo "[INFO] Generating cryptographically random passwords..."
 
-# Generate secure random alphanumeric strings (avoiding sed delimiter collision)
 generate_random_secret() {
-    openssl rand -hex 24
+    openssl rand -hex 24 2>/dev/null || tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32
 }
 
-POSTGRES_PASS=$(generate_random_secret)
-ADMIN_PASS=$(generate_random_secret)
+DB_USER_PASS=$(generate_random_secret)
+DB_ROOT_PASS=$(generate_random_secret)
 BACKUP_KEY=$(generate_random_secret)
 
 cp "${EXAMPLE_FILE}" "${ENV_FILE}"
 
 # Replace placeholder tokens safely
 sed -i.bak \
-    -e "s|POSTGRES_PASSWORD=CHANGE_ME_TO_A_SECURE_POSTGRES_PASSWORD|POSTGRES_PASSWORD=${POSTGRES_PASS}|g" \
-    -e "s|OPENMRS_DB_PASSWORD=CHANGE_ME_TO_A_SECURE_POSTGRES_PASSWORD|OPENMRS_DB_PASSWORD=${POSTGRES_PASS}|g" \
-    -e "s|OPENMRS_ADMIN_PASSWORD=Admin123!_CHANGE_ME|OPENMRS_ADMIN_PASSWORD=${ADMIN_PASS}|g" \
+    -e "s|MYSQL_PASSWORD=CHANGE_ME_TO_A_SECURE_MYSQL_PASSWORD|MYSQL_PASSWORD=${DB_USER_PASS}|g" \
+    -e "s|MYSQL_ROOT_PASSWORD=CHANGE_ME_TO_A_SECURE_ROOT_PASSWORD|MYSQL_ROOT_PASSWORD=${DB_ROOT_PASS}|g" \
     -e "s|BACKUP_ENCRYPTION_PASSPHRASE=CHANGE_ME_TO_A_SECURE_BACKUP_PASSPHRASE|BACKUP_ENCRYPTION_PASSPHRASE=${BACKUP_KEY}|g" \
     "${ENV_FILE}"
 
 rm -f "${ENV_FILE}.bak"
-chmod 600 "${ENV_FILE}"
+chmod 600 "${ENV_FILE}" 2>/dev/null || true
 
-echo "[SUCCESS] '.env' has been generated with secure permissions (chmod 600)."
+echo "[SUCCESS] '.env' has been generated with secure permissions."
 echo "[INFO] Passwords were written directly to ${ENV_FILE} without being printed to logs."

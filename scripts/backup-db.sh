@@ -3,7 +3,7 @@
 # OpenMRS GCP Pilot — Database Backup & Offsite Cloud Archival Script
 # ==============================================================================
 # Functionality:
-# 1. Dumps PostgreSQL database using custom binary format (-Fc).
+# 1. Dumps database (MariaDB/MySQL or PostgreSQL) using compressed format.
 # 2. Validates backup file integrity and non-zero size.
 # 3. Retains 7 days of local rolling backups and prunes older archives.
 # 4. Encrypts dump using OpenSSL AES-256-CBC (PBKDF2).
@@ -26,14 +26,16 @@ if [[ -f "${PROJECT_ROOT}/.env" ]]; then
 fi
 
 CONTAINER_NAME="${CONTAINER_DB_NAME:-openmrs-db}"
-DB_NAME="${POSTGRES_DB:-openmrs}"
-DB_USER="${POSTGRES_USER:-openmrs_user}"
+DB_NAME="${MYSQL_DATABASE:-${POSTGRES_DB:-openmrs}}"
+DB_USER="${MYSQL_USER:-${POSTGRES_USER:-openmrs_user}}"
+DB_PASS="${MYSQL_PASSWORD:-${POSTGRES_PASSWORD:-}}"
+ROOT_PASS="${MYSQL_ROOT_PASSWORD:-}"
 BACKUP_DIR="${LOCAL_BACKUP_DIR:-/var/backups/openmrs}"
 RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-7}"
 GCS_BUCKET="${GCS_BUCKET_NAME:-}"
 ENCRYPTION_KEY="${BACKUP_ENCRYPTION_PASSPHRASE:-}"
 
-BACKUP_FILENAME="openmrs_db_${TIMESTAMP}.dump"
+BACKUP_FILENAME="openmrs_db_${TIMESTAMP}.sql.gz"
 RAW_BACKUP_PATH="${BACKUP_DIR}/${BACKUP_FILENAME}"
 ENCRYPTED_BACKUP_PATH="${RAW_BACKUP_PATH}.enc"
 
@@ -63,15 +65,20 @@ if ! docker ps --format '{{.Names}}' | grep -Eq "^${CONTAINER_NAME}\$"; then
 fi
 
 # ------------------------------------------------------------------------------
-# Step 1: Execute pg_dump inside Container
+# Step 1: Execute Database Dump inside Container
 # ------------------------------------------------------------------------------
-log_info "Generating PostgreSQL custom format dump (-Fc)..."
-if docker exec -e PGPASSWORD="${POSTGRES_PASSWORD:-}" "${CONTAINER_NAME}" \
-    pg_dump -U "${DB_USER}" -d "${DB_NAME}" -Fc > "${RAW_BACKUP_PATH}"; then
-    log_info "Dump created successfully at: ${RAW_BACKUP_PATH}"
+log_info "Generating database dump..."
+if docker exec "${CONTAINER_NAME}" which mariadb-dump &>/dev/null || docker exec "${CONTAINER_NAME}" which mysqldump &>/dev/null; then
+    DUMP_CMD="mysqldump"
+    if docker exec "${CONTAINER_NAME}" which mariadb-dump &>/dev/null; then
+        DUMP_CMD="mariadb-dump"
+    fi
+    AUTH_FLAG="-p${ROOT_PASS:-${DB_PASS}}"
+    docker exec "${CONTAINER_NAME}" "${DUMP_CMD}" -u root ${AUTH_FLAG} --all-databases | gzip > "${RAW_BACKUP_PATH}"
+elif docker exec "${CONTAINER_NAME}" which pg_dump &>/dev/null; then
+    docker exec -e PGPASSWORD="${DB_PASS}" "${CONTAINER_NAME}" pg_dump -U "${DB_USER}" -d "${DB_NAME}" | gzip > "${RAW_BACKUP_PATH}"
 else
-    log_error "pg_dump command failed."
-    rm -f "${RAW_BACKUP_PATH}"
+    log_error "Neither mysqldump nor pg_dump found in container."
     exit 2
 fi
 
@@ -82,7 +89,7 @@ if [[ "${DUMP_SIZE}" -le 100 ]]; then
     rm -f "${RAW_BACKUP_PATH}"
     exit 3
 fi
-log_info "Uncompressed dump size: $(numfmt --to=iec --suffix=B "${DUMP_SIZE}" 2>/dev/null || echo "${DUMP_SIZE} bytes")"
+log_info "Compressed dump size: $(numfmt --to=iec --suffix=B "${DUMP_SIZE}" 2>/dev/null || echo "${DUMP_SIZE} bytes")"
 
 # ------------------------------------------------------------------------------
 # Step 2: Encrypt Backup (AES-256-CBC)
@@ -96,7 +103,6 @@ if [[ -n "${ENCRYPTION_KEY}" && "${ENCRYPTION_KEY}" != "CHANGE_ME_TO_A_SECURE_BA
         -out "${ENCRYPTED_BACKUP_PATH}" \
         -pass pass:"${ENCRYPTION_KEY}"
     
-    # Calculate SHA256 checksum of encrypted file
     sha256sum "${ENCRYPTED_BACKUP_PATH}" > "${ENCRYPTED_BACKUP_PATH}.sha256"
     UPLOAD_TARGET_PATH="${ENCRYPTED_BACKUP_PATH}"
     log_info "Encrypted file generated: ${ENCRYPTED_BACKUP_PATH}"
