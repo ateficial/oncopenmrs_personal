@@ -6,7 +6,7 @@
 [![Ansible](https://img.shields.io/badge/Ansible-Automation-EE0000.svg)](https://www.ansible.com/)
 [![License](https://img.shields.io/badge/License-MPL%202.0-green.svg)](https://opensource.org/licenses/MPL-2.0)
 
-This repository contains the infrastructure-as-code (IaC), container architecture, security policies, automation playbooks, and disaster recovery scripts for deploying **OpenMRS** on Google Cloud Platform (GCP) for an Oncology Department pilot.
+This repository contains the infrastructure-as-code (IaC), container architecture, security policies, automation playbooks, and disaster recovery scripts for deploying **OpenMRS** on Google Cloud Platform (GCP) and on-premise hardware for an Oncology Department pilot.
 
 ---
 
@@ -31,24 +31,24 @@ This repository contains the infrastructure-as-code (IaC), container architectur
                   │   └──────────────┬──────────────┘   │
                   │                  │ (JDBC 5432)      │
                   │   ┌──────────────┴──────────────┐   │
-                  │   │   PostgreSQL 13+            │   │
+                  │   │   PostgreSQL / MariaDB      │   │
                   │   │   (Tuned for Health Records)│   │
                   │   └──────────────┬──────────────┘   │
                   └──────────────────┼──────────────────┘
                                      ▼
                    [ Named Volume: openmrs-db-data ]
                                      │
-                          (pg_dump custom -Fc)
+                          (pg_dump / mysqldump)
                                      ▼
                     [ Encrypted Cloud Backup to GCS ]
 ```
 
 ### Key Security & Architecture Highlights
-1. **Network Isolation**: PostgreSQL (`5432`) and OpenMRS Tomcat (`8080`) are **not** bound to any host ports. Only NGINX exposes `80` (HTTP) and `443` (HTTPS).
+1. **Network Isolation**: Database (`5432`/`3306`) and OpenMRS Tomcat (`8080`) are **not** bound to any host ports. Only NGINX exposes `80` (HTTP) and `443` (HTTPS).
 2. **Data Persistence**: State is stored in Docker named volumes (`openmrs-db-data` and `openmrs-app-data`).
-3. **Secret Isolation**: Passwords and keys reside in `.env` (gitignored). No credentials are committed to version control.
-4. **Automated Backups**: Custom compressed dumps (`pg_dump -Fc`) with 7-day rolling local retention and AES-256 encrypted uploads to Google Cloud Storage.
-5. **Idempotent Provisioning**: Ansible playbook (`ansible/site.yml`) bootstraps Ubuntu 22.04 LTS with Docker, UFW firewall, deploy user, 4GB swapfile, and kernel optimizations.
+3. **Secret Isolation**: Passwords and keys reside in `.env` (gitignored). No credentials are committed to version control. Rotated secrets are stored locally in `rotated_secrets/` (gitignored).
+4. **Automated Backups**: Custom compressed dumps with 7-day rolling local retention and encrypted uploads to Google Cloud Storage.
+5. **Modular Ansible Orchestration**: Extended modular role structure (`common`, `kernel_tuning`, `docker`, `swap`, `backup`, `secret_rotation`) for automated host provisioning, log rotation, and credential management.
 
 ---
 
@@ -56,26 +56,41 @@ This repository contains the infrastructure-as-code (IaC), container architectur
 
 ```
 .
-├── .env.example                      # Environment variables template
-├── .gitignore                         # Secret, dump, and build artifact exclusions
-├── README.md                          # Main project documentation
+├── .env.example                         # Environment variables template
+├── .gitignore                            # Secret, dump, and build artifact exclusions
+├── README.md                             # Main project documentation
 ├── docker/
-│   ├── docker-compose.yml             # Core multi-container definition
+│   ├── docker-compose.yml                # Core multi-container definition
 │   └── openmrs-runtime.properties.template # OpenMRS database configuration template
 ├── nginx/
-│   ├── nginx.conf                     # NGINX master configuration
+│   ├── nginx.conf                        # NGINX master configuration
 │   └── conf.d/
-│       └── openmrs.conf               # OpenMRS SSL reverse proxy site definition
+│       └── openmrs.conf                  # OpenMRS SSL reverse proxy site definition
 ├── ansible/
-│   ├── ansible.cfg                    # Ansible configuration defaults
-│   ├── inventory.ini.example          # Sample production inventory file
-│   └── site.yml                       # Ubuntu 22.04 VM bootstrap playbook
+│   ├── ansible.cfg                       # Global Ansible execution settings
+│   ├── site.yml                          # Master orchestrator playbook
+│   ├── inventory/
+│   │   ├── gcp_hosts.ini                 # Inventory for GCP Cloud Pilot instances
+│   │   └── onprem_hosts.ini              # Inventory for local hospital hardware
+│   ├── group_vars/
+│   │   └── emr_servers.yml               # Shared host, kernel, and backup variables
+│   └── roles/
+│       ├── common/tasks/main.yml         # Base OS updates, utilities, timezone
+│       ├── kernel_tuning/tasks/main.yml  # High-throughput sysctl optimizations
+│       ├── docker/tasks/main.yml         # Docker CE & daemon log rotation limits
+│       ├── swap/tasks/main.yml           # 4GB swapfile creation & boot persistence
+│       ├── backup/tasks/main.yml         # Automated DB backup script & daily cron
+│       └── secret_rotation/tasks/main.yml# Dynamic credential rotation routine
 ├── scripts/
-│   ├── backup-db.sh                   # Automated Postgres backup & GCS upload
-│   ├── restore-db.sh                  # Disaster recovery & database restore
-│   └── generate-secrets.sh            # Secure password generator for .env
+│   ├── provision-gcp.sh                  # Task 1.1: GCP e2-standard-4 VM creation
+│   ├── configure-firewall.sh             # Task 1.2: GCP VPC firewall & network hardening
+│   ├── generate-secrets.sh               # Task 1.4: Cryptographic password generator (.env)
+│   ├── setup-ssl.sh                      # Task 1.5: Automated Let's Encrypt TLS setup
+│   ├── verify-stack.sh                   # Task 1.6: Stack healthcheck & resource metrics
+│   ├── backup-db.sh                      # Task 0.4: Postgres backup & GCS upload
+│   └── restore-db.sh                     # Task 0.4: Disaster recovery & restore script
 └── docs/
-    └── test-plan.md                   # 50 Synthetic patient records & clinical test suite
+    └── test-plan.md                      # 50 Synthetic patient records & clinical test suite
 ```
 
 ---
@@ -84,7 +99,7 @@ This repository contains the infrastructure-as-code (IaC), container architectur
 
 ### 1. Prerequisites
 - Docker Engine $\ge$ 24.0 & Docker Compose $\ge$ v2.20
-- (Optional for Host Bootstrap) Ansible $\ge$ 2.14
+- Ansible $\ge$ 2.15 (for host provisioning and secret rotation)
 - OpenSSL & Bash
 
 ### 2. Generate Secrets and Configure Environment
@@ -124,12 +139,31 @@ To restore from a backup:
 
 ---
 
+## 🔧 Ansible Provisioning & Secret Rotation
+
+```bash
+# 1. Test SSH connectivity to target host
+cd ansible
+ansible emr_servers -m ping
+
+# 2. Dry-run execution to review pending changes
+ansible-playbook site.yml --check --diff
+
+# 3. Provision infrastructure, kernel rules, Docker, swap, and backup cron jobs
+ansible-playbook site.yml
+
+# 4. Execute on-demand dynamic database secret rotation
+ansible-playbook site.yml --tags "secret_rotation"
+```
+
+---
+
 ## 🔒 Security & Contribution Rules
 
 * **Branching Strategy**:
   - `main`: Protected production branch. Direct pushes are disabled; changes require a Pull Request.
   - `develop`: Primary integration branch for ongoing features and tasks.
-* **Secrets Policy**: Never paste passwords, API tokens, or `.env` content into issues, PRs, or public channels.
+* **Secrets Policy**: Never paste passwords, API tokens, `.env` content, or rotated secret files into issues, PRs, or public channels.
 * **Patient Data Policy**: Only fictional, synthetic patient profiles (as documented in `docs/test-plan.md`) may be loaded into pilot environments. Real Protected Health Information (PHI) is strictly prohibited.
 
 ---

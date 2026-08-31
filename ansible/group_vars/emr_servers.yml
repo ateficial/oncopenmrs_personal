@@ -1,0 +1,12 @@
+# Host Performance & Kernel Parameters
+swap_file_size_gb: 4
+sysctl_swappiness: 10
+sysctl_file_max: 2097152
+sysctl_somaxconn: 1024
+docker_log_max_size: "10m"
+docker_log_max_file: "3"
+
+# Backup & Secret Rotation Variables
+db_user: "openmrs_user"
+db_root_password: "InitialRootPasswordHere"  # Encrypt with ansible-vault in production
+backup_retention_days: 7

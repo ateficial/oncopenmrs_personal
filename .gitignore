@@ -10,6 +10,7 @@
 *.p12
 *.pfx
 secrets/
+rotated_secrets/
 
 # Database dumps and backups
 *.dump

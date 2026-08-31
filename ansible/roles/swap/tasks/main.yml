@@ -1,0 +1,32 @@
+- name: Check if swap file exists
+  stat:
+    path: /swapfile
+  register: swap_file_check
+
+- name: Create 4GB swap file if non-existent
+  command: "fallocate -l {{ swap_file_size_gb }}G /swapfile"
+  when: not swap_file_check.stat.exists
+
+- name: Set permissions and make swap
+  file:
+    path: /swapfile
+    owner: root
+    group: root
+    mode: '0600'
+  when: not swap_file_check.stat.exists
+
+- name: Format swap space
+  command: mkswap /swapfile
+  when: not swap_file_check.stat.exists
+
+- name: Enable swap space
+  command: swapon /swapfile
+  when: not swap_file_check.stat.exists
+
+- name: Add swap to /etc/fstab for boot persistence
+  mount:
+    path: none
+    src: /swapfile
+    fstype: swap
+    opts: sw
+    state: present

@@ -1,0 +1,26 @@
+- name: Generate strong random database password
+  set_fact:
+    new_db_password: "{{ lookup('ansible.builtin.password', '/dev/null length=32 chars=ascii_letters,digits') }}"
+
+- name: Update password inside active MariaDB container
+  command: >
+    docker exec openmrs-mariadb mysql -u root -p"{{ db_root_password }}" -e
+    "ALTER USER '{{ db_user }}'@'%' IDENTIFIED BY '{{ new_db_password }}'; FLUSH PRIVILEGES;"
+
+- name: Update DB password in OpenMRS application environment file
+  lineinfile:
+    path: /opt/openmrs/.env
+    regexp: '^DB_PASSWORD='
+    line: "DB_PASSWORD={{ new_db_password }}"
+
+- name: Restart OpenMRS container to register new credentials
+  community.docker.docker_container:
+    name: openmrs-core
+    state: restarted
+
+- name: Store rotated credentials locally on control machine
+  local_action:
+    module: copy
+    content: "Rotated DB Password on {{ ansible_date_time.iso8601 }}: {{ new_db_password }}\n"
+    dest: "./rotated_secrets/{{ inventory_hostname }}_db_secret.txt"
+  no_log: true

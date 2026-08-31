@@ -1,0 +1,22 @@
+- name: Update apt cache and upgrade all packages
+  apt:
+    update_cache: yes
+    upgrade: dist
+
+- name: Install baseline system utilities
+  apt:
+    name:
+      - curl
+      - wget
+      - git
+      - ufw
+      - htop
+      - iotop
+      - ca-certificates
+      - gnupg
+      - lsb-release
+    state: present
+
+- name: Set system timezone to Africa/Cairo
+  community.general.timezone:
+    name: Africa/Cairo
