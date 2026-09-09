@@ -103,46 +103,94 @@ This repository contains the infrastructure-as-code (IaC), container architectur
 
 ---
 
-## 🚀 Single-Command Quickstart (Brand-New VM)
+## 🚀 One-Command Deployment Guide for Brand-New Linux VMs
 
-On any newly provisioned virtual machine (Ubuntu 22.04 / 24.04 on GCP, AWS, Azure, or On-Premise), you can get the entire system configured, optimized, and running with **one single command**:
+You can fully provision, tune, secure, and deploy the entire OpenMRS 3.x stack onto a completely fresh, newly created Linux Virtual Machine (Ubuntu 22.04 / 24.04 LTS on GCP, AWS, Azure, DigitalOcean, or Bare Metal) using **only one command**:
+
+### ⚡ The Command
+
+SSH into your new virtual machine and paste this single command:
 
 ```bash
-sudo ./bootstrap.sh
+curl -fsSL https://raw.githubusercontent.com/ahmed-tagg/OncMRS/develop/bootstrap.sh | sudo bash
 ```
 
-### What this single command does automatically:
-1. **Installs Missing Tools**: Installs `curl`, `git`, `python3`, `python3-pip`, `ansible`, and `openssl` if not present.
-2. **Generates Cryptographic Secrets**: Automatically creates `.env` with strong random passwords for MariaDB and backups.
-3. **Applies Host Optimizations (Ansible)**:
-   - Sets timezone to `Africa/Cairo` and upgrades base packages.
-   - Configures kernel sysctl parameters (`vm.swappiness=10`, `somaxconn=1024`, `file-max=2097152`).
-   - Allocates and activates 4GB swap space (`/swapfile`) with `/etc/fstab` boot persistence.
-   - Installs Docker CE & Compose plugin with daemon log rotation (`10m` x 3).
-   - Installs automated database backup script and configures a daily `02:00 AM` cron job.
-4. **Deploys OpenMRS 3.x Containers**: Starts `openmrs-db`, `openmrs-backend`, `openmrs-frontend`, and `openmrs-nginx`.
-5. **Verifies Health**: Runs end-to-end container and HTTP verification.
+*(Alternative: If you have already cloned the repository onto the machine, you can simply run `sudo ./bootstrap.sh` from inside the project directory).*
 
 ---
 
-## 🪟 Windows Single-Command Quickstart
+### 📋 Prerequisites
 
-To run the full OpenMRS 3.x stack on your local Windows workstation (PowerShell, Command Prompt, or Git Bash), simply execute the startup script from the project root:
+* **Operating System**: Ubuntu 22.04 LTS or 24.04 LTS (Debian 11/12 also supported).
+* **Hardware Sizing**: Minimum 8GB RAM (recommended: 16GB RAM / 4 vCPUs, e.g. GCP `e2-standard-4`).
+* **Firewall Rules**: Allow inbound TCP on port `80` (HTTP) and port `443` (HTTPS).
 
-```powershell
-# From PowerShell / Terminal
-.\start.ps1
+---
 
-# Or from Command Prompt / Git Bash / Double-click
-.\start.bat
+### ⚙️ What the Script Automates (Zero Configuration Required)
+
+When you execute this single command, the bootstrapper automatically executes the complete end-to-end rollout without asking for any manual inputs:
+
+1. **Repository Bootstrapping**:
+   - Detects if running on a fresh VM, installs `curl` and `git` automatically, and clones the latest `develop` branch directly into `/opt/oncopenmrs`.
+2. **Toolchain Installation**:
+   - Non-interactively installs `python3`, `openssl`, `ca-certificates`, `gnupg`, and `ansible`.
+   - Installs official **Docker CE** and the Docker Compose plugin via Docker's official package repositories.
+3. **Cryptographic Secret Generation**:
+   - Detects if `.env` is absent and generates cryptographically secure, high-entropy 32-character passwords for MariaDB and database backup encryption without echoing them to logs.
+4. **Automated Host & Kernel Optimizations (via Ansible)**:
+   - Sets server timezone to `Africa/Cairo`.
+   - Allocates and activates a persistent **4GB Swap Space** (`/swapfile`) with `/etc/fstab` boot persistence to prevent out-of-memory container terminations.
+   - Tunes Linux kernel sysctl parameters for high clinical throughput (`vm.swappiness=10`, `net.core.somaxconn=1024`, `fs.file-max=2097152`).
+   - Configures Docker daemon log rotation (`10m` size ceiling, max 3 files) to prevent disk exhaustion.
+   - Installs automated database backup scripts and sets up a daily **02:00 AM** cron job.
+5. **OpenMRS 3.x Microfrontend Stack Launch**:
+   - Pulls all Docker images and starts the multi-container topology:
+     - `openmrs-db` (MariaDB 10.11 with health checks)
+     - `openmrs-backend` (Spring / FHIR2 Core API with automatic Liquibase table creation)
+     - `openmrs-frontend` (OpenMRS 3.x Microfrontends SPA)
+     - `openmrs-nginx` (Reverse proxy with `/openmrs/spa/` routing and TLS gateway)
+     - `openmrs-certbot` (Automated Let's Encrypt renewal loop)
+6. **Automated Verification & Diagnostics**:
+   - Runs `verify-stack.sh` to validate container runtimes and MariaDB ping health.
+   - Discovers the host's public IP and displays access links.
+
+---
+
+### 🏥 Accessing Your Deployed System
+
+Once the bootstrapper completes, open your web browser:
+
+* **Clinical Microfrontend (SPA)**: `http://<YOUR_VM_PUBLIC_IP>/openmrs/spa/home`
+* **Legacy Admin Console**: `http://<YOUR_VM_PUBLIC_IP>/openmrs/`
+* **Default Username**: `admin`
+* **Default Password**: `Admin123` *(Be sure to change this upon initial login)*
+
+> [!NOTE]
+> **First-Time Boot Duration**: On the first start, OpenMRS creates ~240 database tables and executes over 1,000 Liquibase migrations. This initialization process typically takes **2 to 3 minutes**. If you see a loading screen or setup wizard initially, allow 2–3 minutes for Liquibase to finish.
+
+---
+
+### 🛠️ Common Operations & Management
+
+All project files on the Linux VM are located at `/opt/oncopenmrs`:
+
+```bash
+# View backend database migration progress
+docker compose -f /opt/oncopenmrs/docker/docker-compose.yml logs -f openmrs-backend
+
+# View status of all running containers
+docker compose -f /opt/oncopenmrs/docker/docker-compose.yml ps
+
+# Trigger an immediate database backup manually
+sudo /opt/oncopenmrs/scripts/backup-db.sh
+
+# Restart the OpenMRS stack
+docker compose -f /opt/oncopenmrs/docker/docker-compose.yml restart
+
+# Stop the stack
+docker compose -f /opt/oncopenmrs/docker/docker-compose.yml down
 ```
-
-### What this Windows command does automatically:
-1. **Verifies Docker Installation**: Checks whether Docker is installed on your Windows machine and provides download instructions if missing.
-2. **Starts Docker Engine**: Detects if the Docker daemon is stopped, automatically launches **Docker Desktop**, and waits until the Docker daemon is fully initialized and responsive.
-3. **Prepares Environment**: Automatically initializes `.env` from `.env.example` if not already created and syncs it with `docker/.env`.
-4. **Pulls Container Images**: Pulls the latest OpenMRS 3.x backend, frontend SPA, MariaDB, and NGINX images.
-5. **Launches the Stack**: Starts all services in the background and reports container health.
 
 ---
 

@@ -41,3 +41,7 @@ desktop.ini
 *.swp
 *.swo
 *~
+
+# Windows local startup scripts
+start.bat
+start.ps1
