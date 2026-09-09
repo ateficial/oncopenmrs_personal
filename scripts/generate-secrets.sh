@@ -18,7 +18,12 @@ if [[ ! -f "${EXAMPLE_FILE}" ]]; then
     exit 1
 fi
 
-if [[ -f "${ENV_FILE}" ]]; then
+FORCE_OVERWRITE=false
+if [[ "${1:-}" == "-f" || "${1:-}" == "--force" ]]; then
+    FORCE_OVERWRITE=true
+fi
+
+if [[ -f "${ENV_FILE}" && "${FORCE_OVERWRITE}" != "true" ]]; then
     echo "[WARNING] .env file already exists."
     read -rp "Overwrite existing .env file with newly generated secrets? [y/N]: " confirm
     if [[ ! "${confirm}" =~ ^[Yy]$ ]]; then

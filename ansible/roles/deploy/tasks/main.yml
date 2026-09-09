@@ -1,0 +1,54 @@
+---
+# ==============================================================================
+# OpenMRS 3.x Docker Stack Deployment Role
+# Launches multi-container microfrontends, MariaDB, and NGINX TLS Gateway
+# ==============================================================================
+- name: Determine OpenMRS project root directory
+  set_fact:
+    openmrs_project_dir: "{{ project_dir | default(playbook_dir ~ '/..') }}"
+
+- name: Check if .env file exists
+  stat:
+    path: "{{ openmrs_project_dir }}/.env"
+  register: env_file_stat
+
+- name: Generate cryptographic secrets if .env is missing
+  command: "{{ openmrs_project_dir }}/scripts/generate-secrets.sh"
+  args:
+    chdir: "{{ openmrs_project_dir }}"
+  when: not env_file_stat.stat.exists
+
+- name: Read database root password from .env file
+  shell: |
+    grep '^MYSQL_ROOT_PASSWORD=' "{{ openmrs_project_dir }}/.env" | cut -d '=' -f2-
+  register: env_db_root_pass
+  changed_when: false
+
+- name: Set dynamic db_root_password fact if retrieved from .env
+  set_fact:
+    db_root_password: "{{ env_db_root_pass.stdout }}"
+  when: env_db_root_pass.stdout | length > 0
+
+- name: Ensure Docker Compose stack is deployed and running
+  command: docker compose -f "{{ openmrs_project_dir }}/docker/docker-compose.yml" --env-file "{{ openmrs_project_dir }}/.env" up -d
+  args:
+    chdir: "{{ openmrs_project_dir }}"
+
+- name: Wait for MariaDB database container to become healthy
+  shell: |
+    docker inspect --format='{{ '{{' }} .State.Health.Status {{ '}}' }}' openmrs-db 2>/dev/null || echo "starting"
+  register: db_health
+  until: db_health.stdout == "healthy"
+  retries: 30
+  delay: 5
+  changed_when: false
+
+- name: Verify OpenMRS NGINX Gateway responds on localhost
+  uri:
+    url: "http://localhost/"
+    follow_redirects: none
+    status_code: [200, 301, 302]
+  register: gateway_check
+  retries: 15
+  delay: 4
+  until: gateway_check.status in [200, 301, 302]

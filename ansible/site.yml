@@ -2,13 +2,43 @@
 # ==============================================================================
 # OpenMRS 3.x Host Provisioning & Orchestration Master Playbook
 # ==============================================================================
-- name: Bootstrap and Provision OpenMRS Host Infrastructure
+- name: Bootstrap, Provision, and Deploy OpenMRS Infrastructure
   hosts: emr_servers
   become: yes
+  pre_tasks:
+    - name: Discover project root directory
+      set_fact:
+        openmrs_project_root: "{{ project_dir | default(playbook_dir ~ '/..') }}"
+
+    - name: Check if .env file exists
+      stat:
+        path: "{{ openmrs_project_root }}/.env"
+      register: pre_env_stat
+
+    - name: Auto-generate secure .env if missing
+      command: "{{ openmrs_project_root }}/scripts/generate-secrets.sh"
+      args:
+        chdir: "{{ openmrs_project_root }}"
+      when: not pre_env_stat.stat.exists
+
+    - name: Extract MYSQL_ROOT_PASSWORD from .env
+      shell: |
+        grep '^MYSQL_ROOT_PASSWORD=' "{{ openmrs_project_root }}/.env" | cut -d '=' -f2-
+      register: pre_extracted_db_pass
+      changed_when: false
+      failed_when: false
+
+    - name: Set dynamic db_root_password
+      set_fact:
+        db_root_password: "{{ pre_extracted_db_pass.stdout }}"
+      when:
+        - pre_extracted_db_pass.stdout is defined
+        - pre_extracted_db_pass.stdout | length > 0
+
   roles:
     - common
     - kernel_tuning
     - docker
     - swap
     - backup
-    # - secret_rotation  # Uncomment or pass via --tags for manual credential rotation
+    - deploy

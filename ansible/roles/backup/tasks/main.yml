@@ -6,21 +6,38 @@
     group: root
     mode: '0700'
 
-- name: Deploy automated mysqldump & retention script
+- name: Deploy automated database dump & retention script
   copy:
     dest: /usr/local/bin/backup_openmrs_db.sh
     mode: '0700'
     content: |
       #!/bin/bash
+      set -euo pipefail
       TIMESTAMP=$(date +%Y%m%d_%H%M%S)
       BACKUP_DIR="/var/backups/openmrs"
-      CONTAINER_NAME="openmrs-mariadb"
+      
+      # Detect running database container name
+      if docker ps --format '{{ '{{' }} .Names {{ '}}' }}' | grep -q "^openmrs-db$"; then
+          CONTAINER_NAME="openmrs-db"
+      elif docker ps --format '{{ '{{' }} .Names {{ '}}' }}' | grep -q "^openmrs-mariadb$"; then
+          CONTAINER_NAME="openmrs-mariadb"
+      else
+          CONTAINER_NAME="openmrs-db"
+      fi
 
-      # Execute mysqldump inside container
-      docker exec ${CONTAINER_NAME} mysqldump -u root -p"{{ db_root_password }}" --all-databases | gzip > "${BACKUP_DIR}/openmrs_db_${TIMESTAMP}.sql.gz"
+      mkdir -p "${BACKUP_DIR}"
+
+      # Execute database dump inside container (supports both mariadb-dump and mysqldump)
+      docker exec "${CONTAINER_NAME}" sh -c '
+          if command -v mariadb-dump >/dev/null 2>&1; then
+              mariadb-dump -u root -p"{{ db_root_password }}" --all-databases
+          else
+              mysqldump -u root -p"{{ db_root_password }}" --all-databases
+          fi
+      ' | gzip > "${BACKUP_DIR}/openmrs_db_${TIMESTAMP}.sql.gz"
 
       # Prune local backups older than configured retention days
-      find ${BACKUP_DIR} -type f -name "*.sql.gz" -mtime +{{ backup_retention_days }} -delete
+      find "${BACKUP_DIR}" -type f -name "*.sql.gz" -mtime +{{ backup_retention_days }} -delete
 
 - name: Provision daily cron job for OpenMRS DB backup at 02:00 AM
   ansible.builtin.cron:

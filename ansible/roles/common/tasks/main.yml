@@ -15,8 +15,9 @@
       - ca-certificates
       - gnupg
       - lsb-release
+      - python3-pip
     state: present
 
 - name: Set system timezone to Africa/Cairo
-  community.general.timezone:
-    name: Africa/Cairo
+  command: timedatectl set-timezone Africa/Cairo
+  changed_when: false

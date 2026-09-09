@@ -103,50 +103,49 @@ This repository contains the infrastructure-as-code (IaC), container architectur
 
 ---
 
-## 🚀 Quickstart Guide
+## 🚀 Single-Command Quickstart (Brand-New VM)
 
-### 1. Prerequisites
-- Docker Engine $\ge$ 24.0 & Docker Compose $\ge$ v2.20
-- Ansible $\ge$ 2.15 (for host provisioning and secret rotation)
-- OpenSSL & Bash
+On any newly provisioned virtual machine (Ubuntu 22.04 / 24.04 on GCP, AWS, Azure, or On-Premise), you can get the entire system configured, optimized, and running with **one single command**:
 
-### 2. Configure Environment
 ```bash
-cp .env.example .env
+sudo ./bootstrap.sh
 ```
 
-### 3. Start the OpenMRS 3.x Stack
+### What this single command does automatically:
+1. **Installs Missing Tools**: Installs `curl`, `git`, `python3`, `python3-pip`, `ansible`, and `openssl` if not present.
+2. **Generates Cryptographic Secrets**: Automatically creates `.env` with strong random passwords for MariaDB and backups.
+3. **Applies Host Optimizations (Ansible)**:
+   - Sets timezone to `Africa/Cairo` and upgrades base packages.
+   - Configures kernel sysctl parameters (`vm.swappiness=10`, `somaxconn=1024`, `file-max=2097152`).
+   - Allocates and activates 4GB swap space (`/swapfile`) with `/etc/fstab` boot persistence.
+   - Installs Docker CE & Compose plugin with daemon log rotation (`10m` x 3).
+   - Installs automated database backup script and configures a daily `02:00 AM` cron job.
+4. **Deploys OpenMRS 3.x Containers**: Starts `openmrs-db`, `openmrs-backend`, `openmrs-frontend`, and `openmrs-nginx`.
+5. **Verifies Health**: Runs end-to-end container and HTTP verification.
+
+---
+
+## 🌐 Remote Deployment from Workstation
+
+To deploy to a remote target VM from your local machine with a single command:
+
 ```bash
-docker compose -f docker/docker-compose.yml --env-file .env up -d
+./scripts/deploy-remote.sh <TARGET_VM_IP> [SSH_USER] [SSH_KEY]
 ```
-
-Monitor container initialization:
-```bash
-docker compose -f docker/docker-compose.yml logs -f openmrs-backend
-```
-
-OpenMRS 3.x will be available via the NGINX reverse proxy on:
-👉 **`http://localhost/openmrs/spa/`** *(or root `http://localhost/`)*
-
-* **Default Username**: `admin`
-* **Default Password**: `Admin123`
 
 ---
 
 ## 🔧 Ansible Provisioning & Secret Rotation
 
+If running Ansible directly on the target VM (defaults to `inventory/local.ini`):
+
 ```bash
-# 1. Test SSH connectivity to target host
 cd ansible
-ansible emr_servers -m ping
-
-# 2. Dry-run execution to review pending changes
-ansible-playbook site.yml --check --diff
-
-# 3. Provision infrastructure, kernel rules, Docker, swap, and backup cron jobs
 ansible-playbook site.yml
+```
 
-# 4. Execute on-demand dynamic database secret rotation
+To execute on-demand dynamic database secret rotation:
+```bash
 ansible-playbook site.yml --tags "secret_rotation"
 ```
 

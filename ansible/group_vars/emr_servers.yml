@@ -8,5 +8,6 @@ docker_log_max_file: "3"
 
 # Backup & Secret Rotation Variables
 db_user: "openmrs_user"
-db_root_password: "InitialRootPasswordHere"  # Encrypt with ansible-vault in production
+# Dynamically overridden from .env by the playbook; fallback provided for standalone testing
+db_root_password: "{{ lookup('ansible.builtin.env', 'MYSQL_ROOT_PASSWORD') | default('OpenmrsRootPass123!', true) }}"
 backup_retention_days: 7

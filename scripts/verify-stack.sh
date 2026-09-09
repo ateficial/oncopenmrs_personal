@@ -2,7 +2,7 @@
 # ==============================================================================
 # OpenMRS GCP Pilot — Task 1.6: Automated Stack Health & Verification Script
 # ==============================================================================
-# Verifies container health, PostgreSQL database state, HTTP/HTTPS endpoints,
+# Verifies container health, MariaDB database state, HTTP/HTTPS endpoints,
 # and captures runtime resource consumption.
 # ==============================================================================
 
@@ -11,14 +11,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "${SCRIPT_DIR}")"
 
-# Load environment
+# Load environment if present
 if [[ -f "${PROJECT_ROOT}/.env" ]]; then
     # shellcheck disable=SC1091
     source "${PROJECT_ROOT}/.env"
 fi
 
 CONTAINER_DB="${CONTAINER_DB_NAME:-openmrs-db}"
-CONTAINER_WEB="openmrs-web"
+CONTAINER_BACKEND="openmrs-backend"
+CONTAINER_FRONTEND="openmrs-frontend"
 CONTAINER_NGINX="openmrs-nginx"
 DOMAIN="${SERVER_NAME:-localhost}"
 
@@ -35,13 +36,13 @@ log_fail() {
 }
 
 echo "============================================================"
-echo " OpenMRS Pilot — End-to-End Stack Verification"
+echo " OpenMRS 3.x Pilot — End-to-End Stack Verification"
 echo "============================================================"
 
 # 1. Verify Docker Containers
 log_info "1. Checking container states..."
-for container in "${CONTAINER_DB}" "${CONTAINER_WEB}" "${CONTAINER_NGINX}"; do
-    STATUS=$(docker inspect --format='{{.State.Status}}' "${container}" 2>/dev/null || echo "not_found")
+for container in "${CONTAINER_DB}" "${CONTAINER_BACKEND}" "${CONTAINER_FRONTEND}" "${CONTAINER_NGINX}"; do
+    STATUS=$(docker inspect --format='{{.State.Status}}' "${container}" 2>/dev/null | tr -d '\r' || echo "not_found")
     if [[ "${STATUS}" == "running" ]]; then
         log_pass "Container '${container}' is running."
     else
@@ -49,33 +50,39 @@ for container in "${CONTAINER_DB}" "${CONTAINER_WEB}" "${CONTAINER_NGINX}"; do
     fi
 done
 
-# 2. Verify PostgreSQL Health & Connectivity
-log_info "2. Checking PostgreSQL database connectivity..."
-if docker exec "${CONTAINER_DB}" pg_isready -U "${POSTGRES_USER:-openmrs_user}" -d "${POSTGRES_DB:-openmrs}"; then
-    log_pass "PostgreSQL is accepting connections."
+# 2. Verify MariaDB Health & Connectivity
+log_info "2. Checking MariaDB database connectivity..."
+if docker exec "${CONTAINER_DB}" sh -c 'mariadb-admin ping -u root -p"${MYSQL_ROOT_PASSWORD}" >/dev/null 2>&1 || mysqladmin ping -u root -p"${MYSQL_ROOT_PASSWORD}" >/dev/null 2>&1'; then
+    log_pass "MariaDB is accepting connections and responding to health checks."
 else
-    log_fail "PostgreSQL is not responding to pg_isready."
+    log_fail "MariaDB is not responding to ping check."
 fi
 
 # 3. Check Database Table Count
 log_info "3. Verifying database table schema..."
-TABLE_COUNT=$(docker exec "${CONTAINER_DB}" psql -U "${POSTGRES_USER:-openmrs_user}" -d "${POSTGRES_DB:-openmrs}" -t -c \
-    "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>/dev/null || echo "0")
+TABLE_COUNT=$(docker exec "${CONTAINER_DB}" sh -c 'mariadb -u root -p"${MYSQL_ROOT_PASSWORD}" -s -N -e "SELECT count(*) FROM information_schema.tables WHERE table_schema = \"'${MYSQL_DATABASE:-openmrs}'\";" 2>/dev/null || echo "0"')
 TABLE_COUNT=$(echo "${TABLE_COUNT}" | tr -d '[:space:]')
 
-if [[ "${TABLE_COUNT}" -gt 0 ]]; then
-    log_pass "Database tables detected: ${TABLE_COUNT} public tables present."
+if [[ "${TABLE_COUNT}" -gt 50 ]]; then
+    log_pass "Database tables verified: ${TABLE_COUNT} OpenMRS tables present."
 else
-    log_info "Database is currently initializing or empty (table count: ${TABLE_COUNT})."
+    log_info "Database is currently initializing or populating (table count: ${TABLE_COUNT})."
 fi
 
-# 4. Check NGINX Web Response
-log_info "4. Testing HTTP endpoint response..."
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost/" || echo "000")
-if [[ "${HTTP_CODE}" == "200" || "${HTTP_CODE}" == "301" || "${HTTP_CODE}" == "302" ]]; then
-    log_pass "NGINX endpoint reachable (HTTP Status: ${HTTP_CODE})."
+# 4. Check NGINX Web Response (SPA and Backend)
+log_info "4. Testing HTTP endpoint responses..."
+HTTP_SPA_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost/openmrs/spa/home" || echo "000")
+if [[ "${HTTP_SPA_CODE}" == "200" || "${HTTP_SPA_CODE}" == "301" || "${HTTP_SPA_CODE}" == "302" ]]; then
+    log_pass "OpenMRS 3.x SPA endpoint reachable (HTTP Status: ${HTTP_SPA_CODE})."
 else
-    log_fail "NGINX endpoint returned HTTP Status: ${HTTP_CODE}."
+    log_fail "OpenMRS 3.x SPA endpoint returned HTTP Status: ${HTTP_SPA_CODE}."
+fi
+
+HTTP_ROOT_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost/" || echo "000")
+if [[ "${HTTP_ROOT_CODE}" == "200" || "${HTTP_ROOT_CODE}" == "301" || "${HTTP_ROOT_CODE}" == "302" ]]; then
+    log_pass "NGINX Gateway root redirection reachable (HTTP Status: ${HTTP_ROOT_CODE})."
+else
+    log_fail "NGINX Gateway root returned HTTP Status: ${HTTP_ROOT_CODE}."
 fi
 
 # 5. Resource Consumption Snapshot
@@ -86,4 +93,4 @@ docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\
 echo "------------------------------------------------------------"
 
 echo ""
-log_pass "Stack verification routine completed."
+log_pass "Stack verification routine completed successfully."
