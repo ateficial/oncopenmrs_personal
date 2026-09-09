@@ -125,6 +125,27 @@ sudo ./bootstrap.sh
 
 ---
 
+## 🪟 Windows Single-Command Quickstart
+
+To run the full OpenMRS 3.x stack on your local Windows workstation (PowerShell, Command Prompt, or Git Bash), simply execute the startup script from the project root:
+
+```powershell
+# From PowerShell / Terminal
+.\start.ps1
+
+# Or from Command Prompt / Git Bash / Double-click
+.\start.bat
+```
+
+### What this Windows command does automatically:
+1. **Verifies Docker Installation**: Checks whether Docker is installed on your Windows machine and provides download instructions if missing.
+2. **Starts Docker Engine**: Detects if the Docker daemon is stopped, automatically launches **Docker Desktop**, and waits until the Docker daemon is fully initialized and responsive.
+3. **Prepares Environment**: Automatically initializes `.env` from `.env.example` if not already created and syncs it with `docker/.env`.
+4. **Pulls Container Images**: Pulls the latest OpenMRS 3.x backend, frontend SPA, MariaDB, and NGINX images.
+5. **Launches the Stack**: Starts all services in the background and reports container health.
+
+---
+
 ## 🌐 Remote Deployment from Workstation
 
 To deploy to a remote target VM from your local machine with a single command:
