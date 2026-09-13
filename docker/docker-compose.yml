@@ -71,6 +71,9 @@ services:
     image: openmrs/openmrs-reference-application-3-frontend:${O3_TAG:-qa}
     container_name: openmrs-frontend
     restart: unless-stopped
+    environment:
+      SPA_PATH: "/openmrs/spa"
+      API_URL: "/openmrs"
     networks:
       - openmrs-internal-net
 
